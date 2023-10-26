@@ -13,7 +13,7 @@ type AppWebhookTriggerHookContext<PieceAuth extends PieceAuthProperty, TriggerPr
         webhookUrl: string
         payload: TriggerPayload
         app: {
-            createListeners({ events, identifierValue }: { events: string[], identifierValue: string }): Promise<void>
+            createListeners({ events, identifierValue }: { events: string[], identifierValue: string }): void
         }
     }
 
@@ -38,10 +38,18 @@ export type TriggerHookContext<
 > = S extends TriggerStrategy.APP_WEBHOOK
     ? AppWebhookTriggerHookContext<PieceAuth, TriggerProps>
     : S extends TriggerStrategy.POLLING
-        ? PollingTriggerHookContext<PieceAuth, TriggerProps>
-        : S extends TriggerStrategy.WEBHOOK
-            ? WebhookTriggerHookContext<PieceAuth, TriggerProps>
-            : never
+    ? PollingTriggerHookContext<PieceAuth, TriggerProps>
+    : S extends TriggerStrategy.WEBHOOK
+    ? WebhookTriggerHookContext<PieceAuth, TriggerProps>
+    : never
+
+export type TestOrRunHookContext<
+    PieceAuth extends PieceAuthProperty,
+    TriggerProps extends PiecePropertyMap,
+    S extends TriggerStrategy,
+> = TriggerHookContext<PieceAuth, TriggerProps, S> & {
+    files: FilesService
+}
 
 export type StopHookParams = {
     response: StopResponse
@@ -59,6 +67,15 @@ export type PauseHookParams = {
 
 export type PauseHook = (params: PauseHookParams) => void
 
+export type PropertyContext = {
+	server: ServerContext
+}
+
+export type ServerContext = {
+    apiUrl: string,
+    publicUrl: string,
+    token: string
+}
 export type BaseActionContext<
     ET extends ExecutionType,
     PieceAuth extends PieceAuthProperty,
@@ -66,6 +83,9 @@ export type BaseActionContext<
 > = BaseContext<PieceAuth, ActionProps> & {
     executionType: ET,
     connections: ConnectionsManager,
+    tags: TagsManager,
+    server: ServerContext,
+    files: FilesService
     serverUrl: string,
     run: {
         id: FlowRunId,
@@ -91,8 +111,16 @@ export type ActionContext<
     ActionProps extends NonAuthPiecePropertyMap = NonAuthPiecePropertyMap,
 > = BeginExecutionActionContext<PieceAuth, ActionProps> | ResumeExecutionActionContext<PieceAuth, ActionProps>
 
+export interface FilesService {
+    write({ fileName, data }: { fileName: string, data: Buffer }): Promise<string>;
+}
+
 export interface ConnectionsManager {
     get(key: string): Promise<AppConnectionValue | Record<string, unknown> | string | null>;
+}
+
+export interface TagsManager {
+    add(params: { name: string }): Promise<void>;
 }
 
 export interface Store {

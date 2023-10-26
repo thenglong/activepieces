@@ -57,11 +57,11 @@ export const googleContactsAddContactAction = createAction({
             };
             const contact: Record<string, unknown> = {};
             if (context.propsValue['email']) {
-                contact['emailAddresses'] = [{ value: context.propsValue['email'], primary: true }];
+                contact['emailAddresses'] = [{ value: context.propsValue['email']}];
             }
 
             if (context.propsValue['phoneNumber']) {
-                contact['phoneNumbers'] = [{ value: context.propsValue['phoneNumber'], primary: true }];
+                contact['phoneNumbers'] = [{ value: context.propsValue['phoneNumber']}];
             }
 
             if (context.propsValue['company'] || context.propsValue['jobTitle']) {

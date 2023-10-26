@@ -1,7 +1,8 @@
-import { createAction, Property, OAuth2PropertyValue } from "@activepieces/pieces-framework";
+import { createAction, Property } from "@activepieces/pieces-framework";
 import { httpClient, HttpMethod, AuthenticationType } from "@activepieces/pieces-common";
 import FormData from "form-data";
 import { googleDriveAuth } from "../../";
+import { common } from "../common";
 
 export const googleDriveCreateNewTextFile = createAction({
   auth: googleDriveAuth,
@@ -19,52 +20,31 @@ export const googleDriveCreateNewTextFile = createAction({
         description: 'The text content to add to file',
         required: true,
       }),
-      parentFolder: Property.Dropdown({
-        displayName: "Parent Folder",
-        required: false,
-        refreshers: [],
-        options: async ({ auth }) => {
-          if (!auth) {
-            return {
-              disabled: true,
-              options: [],
-              placeholder: 'Please authenticate first'
-            }
-          }
-          const authProp: OAuth2PropertyValue = auth as OAuth2PropertyValue;
-          const folders = (await httpClient.sendRequest<{ files: { id: string, name: string }[] }>({
-            method: HttpMethod.GET,
-            url: `https://www.googleapis.com/drive/v3/files`,
-            queryParams: {
-              q: "mimeType='application/vnd.google-apps.folder'"
+      fileType: Property.StaticDropdown({
+        displayName: 'Content type',
+        description: 'Select file type',
+        required: true,
+        defaultValue: 'plain/text',
+        options: {
+          options: [
+            {
+              label: 'Text', value: 'plain/text',
             },
-            authentication: {
-              type: AuthenticationType.BEARER_TOKEN,
-              token: authProp!['access_token'],
-            }
-          })).body.files;
-
-          return {
-            disabled: false,
-            options: folders.map((sheet: { id: string, name: string }) => {
-              return {
-                label: sheet.name,
-                value: sheet.id
-              }
-            })
-          };
-        }
+            {
+              label: 'CSV', value: 'text/csv',
+            },
+            {
+              label: 'XML', value: 'text/xml',
+            },
+          ],
+        },
       }),
-    },
-    sampleData: {
-      "kind": "drive#file",
-      "id": "1VjCR4-747AvKH7KeQ6GclFpCnu_41ZDX",
-      "name": "text.txt",
-      "mimeType": "plain/text"
+      parentFolder: common.properties.parentFolder,
+      include_team_drives: common.properties.include_team_drives
     },
     async run(context) {
       const meta = {
-        'mimeType': "plain/text",
+        'mimeType': context.propsValue.fileType,
         'name': context.propsValue.fileName,
         ...(context.propsValue.parentFolder ? { 'parents': [context.propsValue.parentFolder] } : {})
       }
@@ -74,7 +54,7 @@ export const googleDriveCreateNewTextFile = createAction({
 
       const form = new FormData()
       form.append("Metadata", metaBuffer, { contentType: 'application/json' });
-      form.append("Media", textBuffer, { contentType: 'plain/text' });
+      form.append("Media", textBuffer, { contentType: context.propsValue.fileType });
 
       const result = await httpClient.sendRequest({
         method: HttpMethod.POST,

@@ -1,9 +1,12 @@
+import { AppConnectionValue } from "../app-connection/app-connection";
 import { ResumeStepMetadata } from "../flow-run/execution/execution-output";
 import { ExecutionState } from "../flow-run/execution/execution-state";
 import { ExecutionType } from "../flow-run/execution/execution-type";
 import { FlowRunId } from "../flow-run/flow-run";
-import { FlowVersion, FlowVersionId } from "../flows/flow-version";
+import { CodeAction } from "../flows/actions/action";
+import { FlowVersion } from "../flows/flow-version";
 import { ProjectId } from "../project/project";
+import { PiecePackage } from "../pieces";
 
 export enum EngineOperationType {
     EXTRACT_PIECE_METADATA = "EXTRACT_PIECE_METADATA",
@@ -13,6 +16,7 @@ export enum EngineOperationType {
     EXECUTE_PROPERTY = "EXECUTE_PROPERTY",
     EXECUTE_TRIGGER_HOOK = "EXECUTE_TRIGGER_HOOK",
     EXECUTE_VALIDATE_AUTH = "EXECUTE_VALIDATE_AUTH",
+    EXECUTE_TEST = "EXECUTE_TEST",
 }
 
 export enum TriggerHookType {
@@ -30,57 +34,55 @@ export type EngineOperation =
     | ExecutePropsOptions
     | ExecuteTriggerOperation<TriggerHookType>
     | ExecuteExtractPieceMetadata
+    | ExecuteValidateAuthOperation
 
 type BaseEngineOperation = {
     projectId: ProjectId
     workerToken?: string
-    apiUrl?: string
+    serverUrl: string,
 }
 
 export type ExecuteActionOperation = BaseEngineOperation & {
+    piece: PiecePackage
     actionName: string
     flowVersion: FlowVersion
-    pieceName: string
-    pieceVersion: string
     serverUrl: string,
     input: Record<string, unknown>
 }
 
 export type ExecuteValidateAuthOperation = BaseEngineOperation & {
-    pieceName: string
-    pieceVersion: string
-    auth: unknown
+    piece: PiecePackage
+    auth: AppConnectionValue
 }
 
-export type ExecuteExtractPieceMetadata = {
-    pieceName: string
-    pieceVersion: string
-}
+export type ExecuteExtractPieceMetadata = PiecePackage
 
 export type ExecuteCodeOperation = {
-    codeBase64: string
+    step: CodeAction
+    serverUrl: string
     flowVersion: FlowVersion,
     input: Record<string, unknown>
     projectId: ProjectId
 }
 
 export type ExecutePropsOptions = BaseEngineOperation & {
-    pieceName: string;
-    pieceVersion: string;
+    piece: PiecePackage
     propertyName: string;
     stepName: string;
     input: Record<string, any>;
 }
 
 type BaseExecuteFlowOperation<T extends ExecutionType> = BaseEngineOperation & {
-    flowVersionId: FlowVersionId;
+    flowVersion: FlowVersion;
     flowRunId: FlowRunId;
     triggerPayload: unknown;
     serverUrl: string;
     executionType: T;
 }
 
-export type BeginExecuteFlowOperation = BaseExecuteFlowOperation<ExecutionType.BEGIN>
+export type BeginExecuteFlowOperation = BaseExecuteFlowOperation<ExecutionType.BEGIN> & {
+    executionState?: ExecutionState,
+}
 
 export type ResumeExecuteFlowOperation = BaseExecuteFlowOperation<ExecutionType.RESUME> & {
     executionState: ExecutionState,
@@ -89,6 +91,14 @@ export type ResumeExecuteFlowOperation = BaseExecuteFlowOperation<ExecutionType.
 }
 
 export type ExecuteFlowOperation = BeginExecuteFlowOperation | ResumeExecuteFlowOperation
+
+export type EngineTestOperation = BeginExecuteFlowOperation & {
+    /**
+     * original flow version that the current test flow version is derived from.
+     * Used to generate the test execution context.
+     */
+    sourceFlowVersion: FlowVersion
+}
 
 export type ExecuteTriggerOperation<HT extends TriggerHookType> = BaseEngineOperation & {
     hookType: HT,

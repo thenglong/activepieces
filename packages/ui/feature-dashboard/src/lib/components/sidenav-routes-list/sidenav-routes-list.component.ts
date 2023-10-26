@@ -1,12 +1,18 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  OnInit,
+} from '@angular/core';
 import { Router } from '@angular/router';
 import { Store } from '@ngrx/store';
 import { FolderActions } from '../../store/folders/folders.actions';
-import { environment } from '@activepieces/ui/common';
+import { Observable, map, tap } from 'rxjs';
+import { ApFlagId, supportUrl } from '@activepieces/shared';
+import { DashboardService, FlagService } from '@activepieces/ui/common';
 
 type SideNavRoute = {
   icon: string;
-  borderColorInTailwind: string;
   caption: string;
   route: string;
   effect?: () => void;
@@ -18,30 +24,71 @@ type SideNavRoute = {
   styleUrls: ['./sidenav-routes-list.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class SidenavRoutesListComponent {
-  constructor(public router: Router, private store: Store) {}
+export class SidenavRoutesListComponent implements OnInit {
+  removeChatbots$: Observable<void>;
+  logoUrl$: Observable<string>;
+  showSupport$: Observable<boolean>;
+  showDocs$: Observable<boolean>;
+  showBilling$: Observable<boolean>;
+  hideSideRoutes$: Observable<boolean>;
+  constructor(
+    public router: Router,
+    private store: Store,
+    private flagServices: FlagService,
+    private cd: ChangeDetectorRef,
+    private dashboardService: DashboardService
+  ) {
+    this.logoUrl$ = this.flagServices
+      .getLogos()
+      .pipe(map((logos) => logos.logoIconUrl));
+  }
+  ngOnInit(): void {
+    this.removeChatbots$ = this.flagServices.isChatbotEnabled().pipe(
+      tap((res) => {
+        if (!res) {
+          this.sideNavRoutes = this.sideNavRoutes.filter(
+            (route) => route.route !== 'chatbots'
+          );
+        }
+      }),
+      map(() => void 0)
+    );
+    this.showDocs$ = this.flagServices.isFlagEnabled(ApFlagId.SHOW_DOCS);
+    this.showSupport$ = this.flagServices.isFlagEnabled(
+      ApFlagId.SHOW_COMMUNITY
+    );
+    this.showBilling$ = this.flagServices.isFlagEnabled(ApFlagId.SHOW_BILLING);
+    this.hideSideRoutes$ = this.dashboardService.gethideSideNaveRoutesObs();
+  }
 
   sideNavRoutes: SideNavRoute[] = [
     {
-      icon: '/assets/img/custom/dashboard/collections.svg',
-      borderColorInTailwind: '!ap-border-purple-border',
-      caption: 'Flows',
+      icon: 'assets/img/custom/dashboard/flows.svg',
+      caption: $localize`Flows`,
       route: 'flows',
       effect: () => {
         this.store.dispatch(FolderActions.showAllFlows());
       },
     },
     {
+      icon: 'assets/img/custom/dashboard/chatbots.svg',
+      caption: 'Chatbots',
+      route: 'chatbots',
+    },
+    {
       icon: 'assets/img/custom/dashboard/runs.svg',
-      borderColorInTailwind: '!ap-border-green-border',
-      caption: 'Runs',
+      caption: $localize`Runs`,
       route: 'runs',
     },
     {
-      icon: 'assets/img/custom/connections.svg',
-      borderColorInTailwind: '!ap-border-blue-border',
-      caption: 'Connections',
+      icon: 'assets/img/custom/dashboard/connections.svg',
+      caption: $localize`Connections`,
       route: 'connections',
+    },
+    {
+      icon: 'assets/img/custom/dashboard/members.svg',
+      caption: $localize`Team`,
+      route: 'team',
     },
   ];
 
@@ -60,7 +107,15 @@ export class SidenavRoutesListComponent {
     }
   }
 
-  get environment() {
-    return environment;
+  markChange() {
+    this.cd.detectChanges();
+  }
+
+  public isActive(route: string) {
+    return this.router.url.includes(route);
+  }
+
+  openSupport() {
+    window.open(supportUrl, '_blank', 'noopener');
   }
 }

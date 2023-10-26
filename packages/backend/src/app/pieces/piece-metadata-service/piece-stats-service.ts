@@ -1,9 +1,9 @@
-import { FlowId, ProjectId, flowHelper, TriggerType, ActionType } from '@activepieces/shared'
-import { isNil } from '@activepieces/shared'
+import { FlowId, ProjectId, flowHelper, TriggerType, ActionType, isNil, ApEdition } from '@activepieces/shared'
 import { flowInstanceService } from '../../flows/flow-instance/flow-instance.service'
 import { flowRepo } from '../../flows/flow/flow.repo'
 import { flowService } from '../../flows/flow/flow.service'
-import { FilePieceMetadataService } from './file-piece-metadata-service'
+import { CloudPieceMetadataService } from './cloud-piece-metadata-service'
+import { flagService } from '../../flags/flag.service'
 
 type PieceStats = {
     activeSteps: number
@@ -18,13 +18,13 @@ export type AllPiecesStats = Record<string, PieceStats>
 
 let cachedStats: AllPiecesStats = {}
 let cacheTime: number
-const FIVE_MINUTES_IN_MILLISECONDS = 5 * 60 * 1000
+const TWENT_FOUR_HOURS_IN_MILLISECONDS = 24 * 60 * 60 * 1000
 
-const filePieceMetadataService = FilePieceMetadataService()
 
 export const pieceStatsService = {
     async get(): Promise<AllPiecesStats> {
-        if (cachedStats && (Date.now() - cacheTime) < FIVE_MINUTES_IN_MILLISECONDS) {
+        const pieceMetaService = CloudPieceMetadataService()
+        if (cachedStats && (Date.now() - cacheTime) < TWENT_FOUR_HOURS_IN_MILLISECONDS) {
             return cachedStats
         }
         const flows = await flowRepo.find()
@@ -36,7 +36,7 @@ export const pieceStatsService = {
             activeFlows: Set<FlowId>
         }> = {}
         const defaultStats = { activeSteps: 0, allSteps: 0, allProjects: 0, activeFlows: 0, allFlows: 0, activeProjects: 0 }
-        const pieces = await filePieceMetadataService.list({ release: '', projectId: null })
+        const pieces = await pieceMetaService.list({ release: await flagService.getCurrentVersion(), projectId: undefined, edition: ApEdition.ENTERPRISE })
         for (const piece of pieces) {
             uniqueStatsPerPiece[piece.name] = {
                 flows: new Set(),

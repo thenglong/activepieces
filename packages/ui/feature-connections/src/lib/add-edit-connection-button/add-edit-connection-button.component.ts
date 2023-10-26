@@ -1,10 +1,8 @@
 import {
   AppConnection,
   AppConnectionType,
-  BasicAuthConnection,
-  CustomAuthConnection,
+  AppConnectionWithoutSensitiveData,
   OAuth2AppConnection,
-  SecretKeyAppConnection,
 } from '@activepieces/shared';
 import {
   BasicAuthProperty,
@@ -60,11 +58,15 @@ import {
   USE_MY_OWN_CREDENTIALS,
 } from '../dialogs/cloud-oauth2-connection-dialog/cloud-oauth2-connection-dialog.component';
 import { BuilderSelectors } from '@activepieces/ui/feature-builder-store';
+import {
+  BillingService,
+  UpgradeDialogComponent,
+} from '@activepieces/ee-billing-ui';
 
 @Component({
   selector: 'app-add-edit-connection-button',
   templateUrl: './add-edit-connection-button.component.html',
-  styleUrls: ['./add-edit-connection-button.component.scss'],
+  styleUrls: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AddEditConnectionButtonComponent {
@@ -94,9 +96,16 @@ export class AddEditConnectionButtonComponent {
   @Output()
   connectionPropertyValueChanged: EventEmitter<{
     propertyKey: string;
-    value: `{{connections.${string}}}`;
+    value: `{{connections['${string}']}}`;
+  }> = new EventEmitter();
+
+  @Output()
+  connectionIdChanged: EventEmitter<{
+    propertyKey: string;
+    value: string;
   }> = new EventEmitter();
   updateOrAddConnectionDialogClosed$: Observable<void>;
+  checkConnectionLimit$: Observable<{ limit: number; exceeded: boolean }>;
   cloudAuthCheck$: Observable<void>;
   updateConnectionTap = tap((connection: AppConnection | null) => {
     if (connection) {
@@ -109,29 +118,47 @@ export class AddEditConnectionButtonComponent {
     private cloudAuthConfigsService: CloudAuthConfigsService,
     private flagService: FlagService,
     private pieceMetadataService: PieceMetadataService,
-    private cd: ChangeDetectorRef
+    private cd: ChangeDetectorRef,
+    private billingService: BillingService
   ) {}
 
   buttonClicked() {
     if (this.isEditConnectionButton) {
       this.editConnection();
     } else {
-      this.newConnectionDialogProcess();
+      this.checkThenOpenConnection();
     }
     this.cd.markForCheck();
   }
 
-  private newConnectionDialogProcess() {
-    if (this.authProperty.type === PropertyType.OAUTH2) {
-      this.newOAuth2AuthenticationDialogProcess();
-    } else if (this.authProperty.type === PropertyType.SECRET_TEXT) {
-      this.openNewSecretKeyConnection();
-    } else if (this.authProperty.type === PropertyType.CUSTOM_AUTH) {
-      this.openNewCustomAuthConnection();
-    } else {
-      this.openNewBasicAuthConnection();
-    }
+  // BEGIN EE
+  private checkThenOpenConnection() {
+    this.checkConnectionLimit$ = this.billingService
+      .checkConnectionLimit()
+      .pipe(
+        tap((limitExceeded) => {
+          if (limitExceeded.exceeded) {
+            return this.dialogService.open(UpgradeDialogComponent, {
+              data: {
+                limitType: 'connections',
+                limit: limitExceeded.limit,
+              },
+            });
+          }
+          const authDialogMap: Partial<Record<PropertyType, () => void>> = {
+            [PropertyType.OAUTH2]: this.newOAuth2AuthenticationDialogProcess,
+            [PropertyType.SECRET_TEXT]: this.openNewSecretKeyConnection,
+            [PropertyType.CUSTOM_AUTH]: this.openNewCustomAuthConnection,
+            [PropertyType.BASIC_AUTH]: this.openNewBasicAuthConnection,
+          };
+
+          const authDialog = authDialogMap[this.authProperty.type];
+          return authDialog?.call(this);
+        })
+      );
   }
+
+  // END EE
 
   private openNewCustomAuthConnection() {
     const dialogData: CustomAuthDialogData = {
@@ -154,10 +181,14 @@ export class AddEditConnectionButtonComponent {
   }
 
   private emitNewConnection(result: AppConnection) {
-    const authConfigOptionValue: `{{connections.${string}}}` = `{{connections.${result.name}}}`;
+    const authConfigOptionValue: `{{connections['${string}']}}` = `{{connections['${result.name}']}}`;
     this.connectionPropertyValueChanged.emit({
       propertyKey: this.propertyKey,
       value: authConfigOptionValue,
+    });
+    this.connectionIdChanged.emit({
+      propertyKey: this.propertyKey,
+      value: result.id,
     });
   }
 
@@ -361,11 +392,11 @@ export class AddEditConnectionButtonComponent {
   }
 
   private editCustomAuthConnection(
-    currentConnection$: Observable<AppConnection>
+    currentConnection$: Observable<AppConnectionWithoutSensitiveData>
   ) {
     this.updateOrAddConnectionDialogClosed$ = currentConnection$.pipe(
       switchMap((connection) => {
-        const customAuthConnection = connection as CustomAuthConnection;
+        const customAuthConnection = connection;
         const dialogData: CustomAuthDialogData = {
           pieceName: this.pieceName,
           pieceAuthProperty: this.authProperty as CustomAuthProperty<
@@ -388,17 +419,15 @@ export class AddEditConnectionButtonComponent {
   }
 
   private editSecretKeyConnection(
-    currentConnection$: Observable<AppConnection>
+    currentConnection$: Observable<AppConnectionWithoutSensitiveData>
   ) {
     this.updateOrAddConnectionDialogClosed$ = currentConnection$.pipe(
       switchMap((connection) => {
-        const secretKeyConnection = connection as SecretKeyAppConnection;
         const dialogData: SecretTextConnectionDialogData = {
           pieceName: this.pieceName,
           displayName: this.authProperty.displayName,
           description: this.authProperty.description || '',
           connectionName: connection!.name,
-          secretText: secretKeyConnection.value.secret_text,
         };
         return this.dialogService
           .open(SecretTextConnectionDialogComponent, {
@@ -413,14 +442,14 @@ export class AddEditConnectionButtonComponent {
     );
   }
   private editBasicAuthConnection(
-    currentConnection$: Observable<AppConnection>
+    currentConnection$: Observable<AppConnectionWithoutSensitiveData>
   ) {
     this.updateOrAddConnectionDialogClosed$ = currentConnection$.pipe(
       switchMap((connection) => {
         const dialogData: BasicAuthDialogData = {
           pieceName: this.pieceName,
           pieceAuthProperty: this.authProperty as BasicAuthProperty<boolean>,
-          connectionToUpdate: connection as BasicAuthConnection,
+          connectionToUpdate: connection,
         };
 
         return this.dialogService
@@ -436,10 +465,12 @@ export class AddEditConnectionButtonComponent {
     );
   }
 
-  private editOAuth2Property(currentConnection$: Observable<AppConnection>) {
+  private editOAuth2Property(
+    currentConnection$: Observable<AppConnectionWithoutSensitiveData>
+  ) {
     this.updateOrAddConnectionDialogClosed$ = currentConnection$.pipe(
       switchMap((connection) => {
-        if (connection.value.type === AppConnectionType.OAUTH2) {
+        if (connection.type === AppConnectionType.OAUTH2) {
           return this.dialogService
             .open(OAuth2ConnectionDialogComponent, {
               data: {
@@ -486,7 +517,11 @@ export class AddEditConnectionButtonComponent {
 
   getConnectionNameFromInterpolatedString(interpolatedString: string) {
     //eg. {{connections.google}}
-    const result = interpolatedString.split('{{connections.')[1];
-    return result.slice(0, result.length - 2);
+    if (interpolatedString.includes('[')) {
+      const result = interpolatedString.substring(`{{connections['`.length);
+      return result.slice(0, result.length - 4);
+    }
+    const result = interpolatedString.substring(`{{connections.`.length);
+    return result.slice(0, result.length - 4);
   }
 }

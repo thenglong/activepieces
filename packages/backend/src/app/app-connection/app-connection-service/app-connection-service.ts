@@ -15,7 +15,7 @@ import {
     OAuth2ConnectionValueWithApp,
     ProjectId,
     SeekPage,
-    UpsertConnectionRequest,
+    UpsertAppConnectionRequestBody,
 } from '@activepieces/shared'
 import { databaseConnection } from '../../database/database-connection'
 import { buildPaginator } from '../../helper/pagination/build-paginator'
@@ -27,21 +27,20 @@ import {
 import axios from 'axios'
 import { decryptObject, encryptObject } from '../../helper/encryption'
 import { getEdition } from '../../helper/secret-helper'
-import { logger } from '../../helper/logger'
+import { captureException, logger } from '../../helper/logger'
 import { OAuth2AuthorizationMethod } from '@activepieces/pieces-framework'
 import { isNil } from '@activepieces/shared'
 import { engineHelper } from '../../helper/engine-helper'
 import { acquireLock } from '../../helper/lock'
+import { pieceMetadataService } from '../../pieces/piece-metadata-service'
+import { getServerUrl } from '../../helper/public-ip-utils'
+import { appConnectionsHooks } from './app-connection-hooks'
 
 const repo = databaseConnection.getRepository(AppConnectionEntity)
 
-export class AppConnectionService {
-    protected async preUpsertHook(_params: UpsertParams): Promise<void> {
-        return Promise.resolve()
-    }
-
+export const appConnectionService = {
     async upsert(params: UpsertParams): Promise<AppConnection> {
-        await this.preUpsertHook(params)
+        await appConnectionsHooks.getHooks().preUpsert({ projectId: params.projectId })
 
         const { projectId, request } = params
 
@@ -55,10 +54,16 @@ export class AppConnectionService {
             ...request.value,
         })
 
+        const existingConnection = await repo.findOneBy({
+            name: request.name,
+            projectId,
+        })
+
         const connection = {
             ...request,
+            status: AppConnectionStatus.ACTIVE,
             value: encryptedConnectionValue,
-            id: apId(),
+            id: existingConnection?.id ?? apId(),
             projectId,
         }
 
@@ -69,9 +74,12 @@ export class AppConnectionService {
             projectId,
         })
         return decryptConnection(updatedConnection)
-    }
+    },
 
-    async getOne({ projectId, name }: GetOneParams): Promise<AppConnection | null> {
+    async getOne({
+        projectId,
+        name,
+    }: GetOneByName): Promise<AppConnection | null> {
         const encryptedAppConnection = await repo.findOneBy({
             projectId,
             name,
@@ -84,33 +92,41 @@ export class AppConnectionService {
         const appConnection = decryptConnection(encryptedAppConnection)
 
         if (!needRefresh(appConnection)) {
-            appConnection.status = getStatus(appConnection)
             return appConnection
         }
 
         return lockAndRefreshConnection({ projectId, name })
-    }
+    },
 
     async getOneOrThrow(params: GetOneParams): Promise<AppConnection> {
-        const connection = await this.getOne(params)
-
-        if (isNil(connection)) {
+        const connectionById = await repo.findOneBy({
+            id: params.id,
+            projectId: params.projectId,
+        })
+        if (isNil(connectionById)) {
             throw new ActivepiecesError({
                 code: ErrorCode.APP_CONNECTION_NOT_FOUND,
                 params: {
-                    id: params.name,
+                    id: params.id,
                 },
             })
         }
-
-        return connection
-    }
+        return (await this.getOne({
+            projectId: params.projectId,
+            name: connectionById.name,
+        }))!
+    },
 
     async delete(params: DeleteParams): Promise<void> {
         await repo.delete(params)
-    }
+    },
 
-    async list({ projectId, appName, cursorRequest, limit }: ListParams): Promise<SeekPage<AppConnection>> {
+    async list({
+        projectId,
+        appName,
+        cursorRequest,
+        limit,
+    }: ListParams): Promise<SeekPage<AppConnection>> {
         const decodedCursor = paginationHelper.decodeCursor(cursorRequest)
 
         const paginator = buildPaginator({
@@ -123,45 +139,26 @@ export class AppConnectionService {
             },
         })
 
-        let queryBuilder = repo
-            .createQueryBuilder('app_connection')
-            .where({ projectId })
-
-        if (appName !== undefined) {
-            queryBuilder = queryBuilder.where({ appName })
+        const querySelector: Record<string, string> = {
+            projectId,
         }
-
+        if (!isNil(appName)) {
+            querySelector.appName = appName
+        }
+        const queryBuilder = repo
+            .createQueryBuilder('app_connection')
+            .where(querySelector)
         const { data, cursor } = await paginator.paginate(queryBuilder)
         const promises: Promise<AppConnection>[] = []
 
         data.forEach((encryptedConnection) => {
             const apConnection: AppConnection =
                 decryptConnection(encryptedConnection)
-            try {
-                if (apConnection.status === AppConnectionStatus.ACTIVE) {
-                    promises.push(
-                        new Promise((resolve) => {
-                            return resolve(apConnection)
-                        }),
-                    )
-                }
-                else {
-                    promises.push(
-                        this.getOneOrThrow({
-                            projectId: apConnection.projectId,
-                            name: apConnection.name,
-                        }),
-                    )
-                }
-            }
-            catch (e) {
-                apConnection.status = AppConnectionStatus.ERROR
-                promises.push(
-                    new Promise((resolve) => {
-                        return resolve(apConnection)
-                    }),
-                )
-            }
+            promises.push(
+                new Promise((resolve) => {
+                    return resolve(apConnection)
+                }),
+            )
         })
 
         const refreshConnections = await Promise.all(promises)
@@ -170,11 +167,11 @@ export class AppConnectionService {
             refreshConnections,
             cursor,
         )
-    }
+    },
 
     async countByProject({ projectId }: CountByProjectParams): Promise<number> {
         return await repo.countBy({ projectId })
-    }
+    },
 }
 
 const validateConnectionValue = async (
@@ -222,45 +219,10 @@ function decryptConnection(
     encryptedConnection: AppConnectionSchema,
 ): AppConnection {
     const value = decryptObject<AppConnectionValue>(encryptedConnection.value)
-    let connection: AppConnection
-    switch (value.type) {
-        case AppConnectionType.BASIC_AUTH:
-            connection = {
-                ...encryptedConnection,
-                status: AppConnectionStatus.ACTIVE,
-                value,
-            }
-            break
-        case AppConnectionType.CLOUD_OAUTH2:
-            connection = {
-                ...encryptedConnection,
-                status: AppConnectionStatus.ACTIVE,
-                value,
-            }
-            break
-        case AppConnectionType.CUSTOM_AUTH:
-            connection = {
-                ...encryptedConnection,
-                status: AppConnectionStatus.ACTIVE,
-                value,
-            }
-            break
-        case AppConnectionType.OAUTH2:
-            connection = {
-                ...encryptedConnection,
-                status: AppConnectionStatus.ACTIVE,
-                value,
-            }
-            break
-        case AppConnectionType.SECRET_TEXT:
-            connection = {
-                ...encryptedConnection,
-                status: AppConnectionStatus.ACTIVE,
-                value,
-            }
-            break
+    const connection: AppConnection = {
+        ...encryptedConnection,
+        value,
     }
-    connection.status = getStatus(connection)
     return connection
 }
 
@@ -269,9 +231,21 @@ const engineValidateAuth = async (
 ): Promise<void> => {
     const { pieceName, auth, projectId } = params
 
+    const pieceMetadata = await pieceMetadataService.getOrThrow({
+        name: pieceName,
+        projectId,
+        version: undefined,
+    })
+
     const engineInput: ExecuteValidateAuthOperation = {
-        pieceName,
-        pieceVersion: 'latest',
+        serverUrl: await getServerUrl(),
+        piece: {
+            packageType: pieceMetadata.packageType,
+            pieceType: pieceMetadata.pieceType,
+            pieceName: pieceMetadata.name,
+            pieceVersion: pieceMetadata.version,
+            projectId,
+        },
         auth,
         projectId,
     }
@@ -336,19 +310,18 @@ async function lockAndRefreshConnection({
         const refreshedAppConnection = await refresh(appConnection)
 
         await repo.update(refreshedAppConnection.id, {
-            id: refreshedAppConnection.id,
-            name: refreshedAppConnection.name,
-            appName: refreshedAppConnection.appName,
-            projectId: refreshedAppConnection.projectId,
+            status: AppConnectionStatus.ACTIVE,
             value: encryptObject(refreshedAppConnection.value),
         })
-        refreshedAppConnection.status = getStatus(refreshedAppConnection)
         return refreshedAppConnection
     }
     catch (e) {
-        logger.error(e)
+        captureException(e)
         if (!isNil(appConnection)) {
             appConnection.status = AppConnectionStatus.ERROR
+            await repo.update(appConnection.id, {
+                status: appConnection.status,
+            })
         }
     }
     finally {
@@ -356,7 +329,6 @@ async function lockAndRefreshConnection({
     }
     return appConnection
 }
-
 function needRefresh(connection: AppConnection): boolean {
     switch (connection.value.type) {
         case AppConnectionType.CLOUD_OAUTH2:
@@ -366,6 +338,20 @@ function needRefresh(connection: AppConnection): boolean {
             return false
     }
 }
+
+function isExpired(connection: BaseOAuth2ConnectionValue) {
+    const secondsSinceEpoch = Math.round(Date.now() / 1000)
+    if (!connection.refresh_token) {
+        return false
+    }
+    // Salesforce doesn't provide an 'expires_in' field, as it is dynamic per organization; therefore, it's necessary for us to establish a low threshold and consistently refresh it.
+    const expiresIn = connection.expires_in ?? 60 * 60
+    const refreshThreshold = 15 * 60 // Refresh if there is less than 15 minutes to expire
+    return (
+        secondsSinceEpoch + refreshThreshold >= connection.claimed_at + expiresIn
+    )
+}
+
 
 async function refresh(connection: AppConnection): Promise<AppConnection> {
     switch (connection.value.type) {
@@ -384,29 +370,11 @@ async function refresh(connection: AppConnection): Promise<AppConnection> {
     return connection
 }
 
-const REFRESH_THRESHOLD = 15 * 60 // Refresh if there is less than 15 minutes to expire
-
-function isExpired(connection: BaseOAuth2ConnectionValue) {
-    const secondsSinceEpoch = Math.round(Date.now() / 1000)
-
-    if (!connection.refresh_token) {
-        return false
-    }
-    // Salesforce doesn't provide an 'expires_in' field, as it is dynamic per organization; therefore, it's necessary for us to establish a low threshold and consistently refresh it.
-    const expiresIn = connection.expires_in ?? 60 * 60
-    return (
-        secondsSinceEpoch + REFRESH_THRESHOLD >= connection.claimed_at + expiresIn
-    )
-}
 
 async function refreshCloud(
     appName: string,
     connectionValue: CloudOAuth2ConnectionValue,
 ): Promise<CloudOAuth2ConnectionValue> {
-    if (!isExpired(connectionValue)) {
-        return connectionValue
-    }
-
     const requestBody = {
         refreshToken: connectionValue.refresh_token,
         pieceName: appName,
@@ -415,10 +383,7 @@ async function refreshCloud(
         authorizationMethod: connectionValue.authorization_method,
         tokenUrl: connectionValue.token_url,
     }
-    const response = (
-        await axios.post('https://secrets.activepieces.com/refresh', requestBody)
-    ).data
-
+    const response = (await axios.post('https://secrets.activepieces.com/refresh', requestBody, { timeout: 10000 })).data
     return {
         ...connectionValue,
         ...response,
@@ -433,7 +398,6 @@ async function refreshWithCredentials(
         return appConnection
     }
     const body: Record<string, string> = {
-        redirect_uri: appConnection.redirect_url,
         grant_type: 'refresh_token',
         refresh_token: appConnection.refresh_token,
     }
@@ -459,6 +423,7 @@ async function refreshWithCredentials(
     const response = (
         await axios.post(appConnection.token_url, new URLSearchParams(body), {
             headers,
+            timeout: 10000,
         })
     ).data
     const mergedObject = mergeNonNull(
@@ -472,7 +437,7 @@ async function refreshWithCredentials(
  * When the refresh token is null or undefined, it indicates that the original connection's refresh token is also null
  * or undefined. Therefore, we only need to merge non-null values to avoid overwriting the original refresh token with a
  *  null or undefined value.
-*/
+ */
 function mergeNonNull(
     appConnection: OAuth2ConnectionValueWithApp,
     oAuth2Response: BaseOAuth2ConnectionValue,
@@ -599,31 +564,19 @@ function deleteProps(obj: Record<string, unknown>, prop: string[]) {
     }
 }
 
-function getStatus(connection: AppConnection): AppConnectionStatus {
-    const connectionStatus = AppConnectionStatus.ACTIVE
-    switch (connection.value.type) {
-        case AppConnectionType.CLOUD_OAUTH2:
-        case AppConnectionType.OAUTH2:
-            if (isExpired(connection.value)) {
-                return AppConnectionStatus.EXPIRED
-            }
-            break
-        default:
-            break
-    }
-    return connectionStatus
-}
-
-
-
 type UpsertParams = {
     projectId: ProjectId
-    request: UpsertConnectionRequest
+    request: UpsertAppConnectionRequestBody
+}
+
+type GetOneByName = {
+    projectId: ProjectId
+    name: string
 }
 
 type GetOneParams = {
     projectId: ProjectId
-    name: string
+    id: string
 }
 
 type DeleteParams = {
@@ -655,11 +608,11 @@ type claimWithCloudRequest = {
 type EngineValidateAuthParams = {
     pieceName: string
     projectId: ProjectId
-    auth: unknown
+    auth: AppConnectionValue
 }
 
 type ValidateConnectionValueParams = {
-    connection: UpsertConnectionRequest
+    connection: UpsertAppConnectionRequestBody
     projectId: ProjectId
 }
 

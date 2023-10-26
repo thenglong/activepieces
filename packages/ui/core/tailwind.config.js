@@ -24,6 +24,7 @@ module.exports = {
       },
       spacing: {
         7.5: '1.875rem',
+        15: '3.75rem'
       },
       colors: {
         title:'var(--title)',
@@ -44,9 +45,6 @@ module.exports = {
         'blue-link': 'var(--blue-link)',
         'gray-select': 'var(--gray-select)',
         'add-piece': 'var(--add-piece)',
-        'blue-border': 'var(--blue-border)',
-        'purple-border': 'var(--purple-border)',
-        'green-border': 'var(--green-border)',
         outline: 'var(--outline)',
         description: 'var(--description)',
         danger: 'var(--danger)',
@@ -64,6 +62,7 @@ module.exports = {
           light:'var(--success-light)'
         },
        'bleached-gray':'var(--bleached-gray)',
+       'selection': 'var(--selection)'
       },
     },
     container: {

@@ -16,8 +16,9 @@ import {
     ActivepiecesError,
     ErrorCode,
     ExecutionType,
+    isNil,
 } from '@activepieces/shared'
-import { databaseConnection } from '../../database/database-connection'
+import { APArrayContains, databaseConnection } from '../../database/database-connection'
 import { flowVersionService } from '../../flows/flow-version/flow-version.service'
 import { buildPaginator } from '../../helper/pagination/build-paginator'
 import { paginationHelper } from '../../helper/pagination/pagination-utils'
@@ -26,11 +27,10 @@ import { telemetry } from '../../helper/telemetry.utils'
 import { FlowRunEntity } from './flow-run-entity'
 import { flowRunSideEffects } from './flow-run-side-effects'
 import { logger } from '../../helper/logger'
-import { notifications } from '../../helper/notifications'
 import { flowService } from '../flow/flow.service'
-import { isNil } from 'lodash'
 import { MoreThanOrEqual } from 'typeorm'
- 
+import { flowRunHooks } from './flow-run-hooks'
+
 export const flowRunRepo = databaseConnection.getRepository(FlowRunEntity)
 
 const getFlowRunOrCreate = async (params: GetOrCreateParams): Promise<Partial<FlowRun>> => {
@@ -55,7 +55,7 @@ const getFlowRunOrCreate = async (params: GetOrCreateParams): Promise<Partial<Fl
 }
 
 export const flowRunService = {
-    async list({ projectId, flowId, status, cursor, limit }: ListParams): Promise<SeekPage<FlowRun>> {
+    async list({ projectId, flowId, status, cursor, limit, tags }: ListParams): Promise<SeekPage<FlowRun>> {
         const decodedCursor = paginationHelper.decodeCursor(cursor)
         const paginator = buildPaginator({
             entity: FlowRunEntity,
@@ -67,13 +67,15 @@ export const flowRunService = {
             },
         })
 
-        const query = flowRunRepo.createQueryBuilder('flow_run').where({
+        let query = flowRunRepo.createQueryBuilder('flow_run').where({
             projectId,
             ...spreadIfDefined('flowId', flowId),
             ...spreadIfDefined('status', status),
             environment: RunEnvironment.PRODUCTION,
         })
-
+        if (tags) {
+            query = APArrayContains('tags', tags, query)
+        }
         const { data, cursor: newCursor } = await paginator.paginate(query)
         return paginationHelper.createPage<FlowRun>(data, newCursor)
     },
@@ -108,24 +110,23 @@ export const flowRunService = {
         })
     },
     async finish(
-        { flowRunId, status, tasks, logsFileId }: {
+        { flowRunId, status, tasks, logsFileId, tags }: {
             flowRunId: FlowRunId
             status: ExecutionOutputStatus
             tasks: number
+            tags: string[]
             logsFileId: FileId | null
         },
     ): Promise<FlowRun> {
         await flowRunRepo.update(flowRunId, {
-            logsFileId,
+            ...spreadIfDefined('logsFileId', logsFileId),
             status,
             tasks,
+            tags,
             finishTime: new Date().toISOString(),
-            pauseMetadata: null,
         })
         const flowRun = (await this.getOne({ id: flowRunId, projectId: undefined }))!
-        notifications.notifyRun({
-            flowRun,
-        })
+        await flowRunSideEffects.finish({ flowRun })
         return flowRun
     },
 
@@ -138,6 +139,8 @@ export const flowRunService = {
             id: flowVersion.flowId,
             projectId,
         })
+
+        await flowRunHooks.getHooks().onPreStart({ projectId })
 
         const flowRun = await getFlowRunOrCreate({
             id: flowRunId,
@@ -159,7 +162,7 @@ export const flowRunService = {
                 flowId: savedFlowRun.flowId,
                 environment: savedFlowRun.environment,
             },
-        })
+        }).catch((e) => logger.error(e, '[FlowRunService#Start] telemetry.trackProject'))
 
         await flowRunSideEffects.start({
             flowRun: savedFlowRun,
@@ -249,6 +252,7 @@ type ListParams = {
     flowId: FlowId | undefined
     status: ExecutionOutputStatus | undefined
     cursor: Cursor | null
+    tags?: string[]
     limit: number
 }
 

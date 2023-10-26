@@ -1,7 +1,7 @@
 <form [formGroup]="codeStepForm" class="ng-submitted">
   <div class="ap-flex ap-flex-col ap-gap-2">
     <div>
-      <div class="ap-mb-2 ap-pointer-events-none">Inputs</div>
+      <div class="ap-mb-2 ap-pointer-events-none" i18n>Inputs</div>
       <div class="ap-mt-4 ap-mb-4">
         <ap-markdown [data]="markdown" [smallText]="true">
         </ap-markdown>
@@ -9,16 +9,16 @@
       <app-dictonary-form-control formControlName="input"></app-dictonary-form-control>
     </div>
     <div>
-      <div class="ap-mb-2 ap-pointer-events-none">Code</div>
-      <app-code-artifact-form-control *ngIf="_stepArtifact$ |async; else loading"
-        formControlName="artifact"></app-code-artifact-form-control>
+      <div class="ap-mb-2 ap-pointer-events-none" i18n>Code</div>
+      <app-code-artifact-form-control
+        formControlName="sourceCode"></app-code-artifact-form-control>
     </div>
   </div>
 </form>
 
 <ng-container *ngIf="formValueChanged$ | async"></ng-container>
 <ng-template #loading>
-  <div class="ap-flex ap-items-center ap-justify-center ap-h-[337px] ap-bg-[#F8F9FA]">
-    <ap-loading-icon [whiteLoader]="false" [outlineLoader]="false"></ap-loading-icon>
+  <div class="ap-flex ap-items-center ap-justify-center ap-h-[337px] ap-bg-[#193549]">
+    <ap-loading-icon [whiteLoader]="true" [outlineLoader]="false"></ap-loading-icon>
   </div>
 </ng-template>

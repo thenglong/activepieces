@@ -1,101 +1,67 @@
-import { FlowRunId } from "@activepieces/shared";
+import { FlowRunId } from '@activepieces/shared'
 
 class Globals {
-  private _collectionDirectory = './collections';
-  private _flowDirectory = './flows';
-  private _codeDirectory = './codes';
-  private _inputFile = './input.json';
-  private _outputFile = './output.json';
-  private _executorFile = './executor.js';
-  private _workerToken = '';
-  private _projectId = '';
-  private _apiUrl = '';
-  private _serverUrl = '';
-  private _flowId = '';
-  private _flowRunId?: FlowRunId
-  private _resumePayload: unknown
+    private _inputFile = './input.json'
+    private _outputFile = './output.json'
+    private _workerToken = ''
+    private _projectId = ''
+    private _serverUrl = ''
+    private _flowRunId?: FlowRunId
+    private _resumePayload: unknown
+    private _apiUrl = 'http://127.0.0.1:3000/'
 
-  set serverUrl(_serverUrl: string) {
-    this._serverUrl = _serverUrl;
-  }
+    get apiUrl(): string | undefined {
+        return this._apiUrl
+    }
 
-  get serverUrl(): string | undefined {
-    return this._serverUrl;
-  }
+    set serverUrl(_serverUrl: string) {
+        this._serverUrl = _serverUrl
+    }
 
-  set flowRunId(_flowRunId: string) {
-    this._flowRunId = _flowRunId;
-  }
+    get serverUrl(): string | undefined {
+        return this._serverUrl
+    }
 
-  get flowRunId(): string | undefined {
-    return this._flowRunId;
-  }
+    set flowRunId(_flowRunId: string) {
+        this._flowRunId = _flowRunId
+    }
 
-  set resumePayload(_resumePayload: unknown) {
-    this._resumePayload = _resumePayload;
-  }
+    get flowRunId(): string | undefined {
+        return this._flowRunId
+    }
 
-  get resumePayload() {
-    return this._resumePayload;
-  }
+    set resumePayload(_resumePayload: unknown) {
+        this._resumePayload = _resumePayload
+    }
 
-  set flowId(_flowId: string) {
-    this._flowId = _flowId;
-  }
+    get resumePayload() {
+        return this._resumePayload
+    }
 
-  get flowId() {
-    return this._flowId;
-  }
+    set projectId(_projectId: string) {
+        this._projectId = _projectId
+    }
 
-
-  set apiUrl(_apiUrl: string) {
-    this._apiUrl = _apiUrl;
-  }
-
-  get apiUrl() {
-    return this._apiUrl;
-  }
-
-  set projectId(_projectId: string) {
-    this._projectId = _projectId;
-  }
-
-  get projectId() {
-    return this._projectId;
-  }
+    get projectId() {
+        return this._projectId
+    }
 
 
-  set workerToken(_workerToken: string) {
-    this._workerToken = _workerToken;
-  }
+    set workerToken(_workerToken: string) {
+        this._workerToken = _workerToken
+    }
 
-  get workerToken() {
-    return this._workerToken;
-  }
+    get workerToken() {
+        return this._workerToken
+    }
 
-  get collectionDirectory() {
-    return this._collectionDirectory;
-  }
+    get inputFile() {
+        return this._inputFile
+    }
 
-  get flowDirectory() {
-    return this._flowDirectory;
-  }
-
-  get codeDirectory() {
-    return this._codeDirectory;
-  }
-
-  get inputFile() {
-    return this._inputFile;
-  }
-
-  get outputFile() {
-    return this._outputFile;
-  }
-
-  get executorFile() {
-    return this._executorFile;
-  }
+    get outputFile() {
+        return this._outputFile
+    }
 }
 
-export const globals = new Globals();
+export const globals = new Globals()

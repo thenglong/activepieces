@@ -1,6 +1,6 @@
 import { Type, Static, } from '@sinclair/typebox';
 
-import { QueryVerType } from '../../pieces';
+import { PackageType, PieceType, VersionType } from '../../pieces';
 import { SampleDataSettingsObject } from '../sample-data';
 import { PieceTriggerSettings } from '../triggers/trigger';
 
@@ -9,8 +9,6 @@ export enum ActionType {
   PIECE = 'PIECE',
   LOOP_ON_ITEMS = 'LOOP_ON_ITEMS',
   BRANCH = 'BRANCH',
-  // Missing action is used when the action is not found by AI
-  MISSING = 'MISSING'
 }
 
 const commonActionProps = {
@@ -19,12 +17,15 @@ const commonActionProps = {
   displayName: Type.String({}),
 }
 
-// Code Action
+export const SourceCode = Type.Object({
+  packageJson: Type.String({}),
+  code: Type.String({}),
+});
+
+export type SourceCode = Static<typeof SourceCode>;
 
 export const CodeActionSettings = Type.Object({
-  artifactSourceId: Type.Optional(Type.String({})),
-  artifactPackagedId: Type.Optional(Type.String({})),
-  artifact: Type.Optional(Type.String({})),
+  sourceCode: SourceCode,
   input: Type.Record(Type.String({}), Type.Any()),
   inputUiInfo: Type.Optional(SampleDataSettingsObject)
 });
@@ -38,20 +39,15 @@ export const CodeActionSchema = Type.Object({
   settings: CodeActionSettings
 });
 
-
 // Piece Action
 export const PieceActionSettings = Type.Object({
+  packageType: Type.Enum(PackageType),
+  pieceType: Type.Enum(PieceType),
   pieceName: Type.String({}),
-  pieceVersion: QueryVerType,
+  pieceVersion: VersionType,
   actionName: Type.Optional(Type.String({})),
   input: Type.Record(Type.String({}), Type.Any()),
   inputUiInfo: SampleDataSettingsObject,
-});
-
-export const MissingActionSchema = Type.Object({
-  ...commonActionProps,
-  type: Type.Literal(ActionType.MISSING),
-  settings: Type.Object({}),
 });
 
 export type PieceActionSettings = Static<typeof PieceActionSettings>;
@@ -153,6 +149,7 @@ const BranchConditionValid = (addMinLength: boolean) => Type.Union([
 
 export const BranchActionSettingsWithValidation = Type.Object({
   conditions: Type.Array(Type.Array(BranchConditionValid(true))),
+  inputUiInfo: SampleDataSettingsObject,
 })
 
 export const BranchCondition = BranchConditionValid(false);
@@ -160,6 +157,7 @@ export type BranchCondition = Static<typeof BranchCondition>;
 
 export const BranchActionSettings = Type.Object({
   conditions: Type.Array(Type.Array(BranchConditionValid(false))),
+  inputUiInfo: SampleDataSettingsObject,
 })
 export type BranchActionSettings = Static<typeof BranchActionSettings>;
 
@@ -172,9 +170,6 @@ export const BranchActionSchema = Type.Object({
 // Union of all actions
 
 export const Action = Type.Recursive(action => Type.Union([
-  Type.Intersect([MissingActionSchema, Type.Object({
-    nextAction: Type.Optional(action),
-  })]),
   Type.Intersect([CodeActionSchema, Type.Object({
     nextAction: Type.Optional(action),
   })]),
@@ -193,7 +188,6 @@ export const Action = Type.Recursive(action => Type.Union([
 ]));
 
 export const SingleActionSchema = Type.Union([
-  MissingActionSchema,
   CodeActionSchema,
   PieceActionSchema,
   LoopOnItemsActionSchema,
@@ -201,15 +195,16 @@ export const SingleActionSchema = Type.Union([
 ])
 export type Action = Static<typeof Action>;
 
+
 export type BranchAction = Static<typeof BranchActionSchema> & { nextAction?: Action, onFailureAction?: Action, onSuccessAction?: Action };
 
 export type LoopOnItemsAction = Static<typeof LoopOnItemsActionSchema> & { nextAction?: Action, firstLoopAction?: Action };
+
 
 export type PieceAction = Static<typeof PieceActionSchema> & { nextAction?: Action };
 
 export type CodeAction = Static<typeof CodeActionSchema> & { nextAction?: Action };
 
-export type MissingAction = Static<typeof MissingActionSchema> & { nextAction?: Action };
 
 export type StepSettings =
   | CodeActionSettings

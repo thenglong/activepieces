@@ -7,13 +7,6 @@ export const airtableCreateRecordAction = createAction({
   name: 'airtable_create_record',
   displayName: 'Create Airtable Record',
   description: 'Adds a record into an airtable',
-  sampleData: {
-    "id": "recoyzj6c0Zekuz4V",
-    "createdTime": "2023-03-15T12:50:33.000Z",
-    "fields": {
-      "fieldName": "fieldValue"
-    }
-  },
   props: {
     base: airtableCommon.base,
     tableId: airtableCommon.tableId,
@@ -29,12 +22,13 @@ export const airtableCreateRecordAction = createAction({
         fieldsWithoutEmptyStrings[k] = fields[k]
       }
     })
-
+    const newFields : Record<string,unknown> = await airtableCommon.createNewFields( personalToken , baseId , tableId as string , fieldsWithoutEmptyStrings );
+   
     return airtableCommon.createRecord({
       personalToken,
       baseId,
       tableId: tableId as string,
-      fields: fieldsWithoutEmptyStrings,
+      fields: newFields,
     })
   },
 })

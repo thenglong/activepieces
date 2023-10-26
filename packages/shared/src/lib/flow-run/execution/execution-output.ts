@@ -4,6 +4,7 @@ import { StopResponse } from './step-output';
 
 export enum ExecutionOutputStatus {
   FAILED = 'FAILED',
+  QUOTA_EXCEEDED = 'QUOTA_EXCEEDED',
   INTERNAL_ERROR = 'INTERNAL_ERROR',
   PAUSED = 'PAUSED',
   RUNNING = "RUNNING",
@@ -22,6 +23,7 @@ type BaseExecutionOutput<T extends ExecutionOutputStatus> = {
   executionState: ExecutionState;
   duration: number;
   tasks: number;
+  tags?: string[];
   errorMessage?: ExecutionError;
 }
 
